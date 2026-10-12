@@ -5,13 +5,29 @@ function show(id){sections.forEach(s=>$(s).classList.toggle('hidden',s!==id));wi
 function error(msg){$('globalError').textContent=msg||''}
 function el(tag,text,cls){const n=document.createElement(tag);if(text!=null)n.textContent=String(text);if(cls)n.className=cls;return n}
 function initial(b){const c=(b.sort_title||b.title||'').trim().charAt(0).toUpperCase();return /^[A-Z]$/.test(c)?c:'#'}
-function render(){const q=$('search').value.trim().toLowerCase(),cat=$('category').value,st=$('status').value;const data=books.filter(b=>(letter==='全部'||initial(b)===letter)&&(!cat||b.category===cat)&&(!st||b.status===st)&&(!q||[b.title,b.sort_title,b.author,b.description].some(v=>(v||'').toLowerCase().includes(q))));$('count').textContent=`共 ${data.length} 部作品`;$('books').replaceChildren();data.forEach(b=>{const card=el('div',null,'book');card.append(el('strong',b.title),el('small',`${b.category||''} · ${b.status||''} · ${b.rating==null?'未评分':b.rating+' / 5'}`,'muted'));if(b.description)card.append(el('p',b.description,'excerpt'));card.tabIndex=0;card.setAttribute('role','button');card.onclick=()=>detail(b.id);card.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();detail(b.id)}};$('books').append(card)})}
-function detail(id){const b=books.find(x=>x.id===id);if(!b)return;current=id;const root=$('detailContent');root.replaceChildren();root.append(el('h2',b.title));[['主角',b.author],['分类',b.category],['阅读状态',b.status],['评分',b.rating==null?'未评分':b.rating+' / 5'],['进度',b.progress]].forEach(([k,v])=>{if(v)root.append(el('p',`${k}：${v}`))});root.append(el('h3','作品简介／剧情梗概'),el('p',b.description||'暂无简介','longtext'),el('h3','我的评价'),el('p',b.review||'暂无评价','longtext'));$('detailActions').classList.toggle('hidden',!isAdmin);show('detail')}
+function ratingStars(value){const n=value==null?null:Number(value);if(n===null||!Number.isFinite(n))return '未评分';const full=Math.floor(n),half=n-full>=0.5?1:0;return '★'.repeat(full)+(half?'½':'')+'☆'.repeat(Math.max(0,5-full-half))+'  '+n.toFixed(1)+'/5'}
+function render(){const q=$('search').value.trim().toLowerCase(),cat=$('category').value,st=$('status').value;const data=books.filter(b=>(letter==='全部'||initial(b)===letter)&&(!cat||b.category===cat)&&(!st||b.status===st)&&(!q||[b.title,b.sort_title,b.author,b.description].some(v=>(v||'').toLowerCase().includes(q))));$('count').textContent=`共 ${data.length} 部作品`;$('books').replaceChildren();data.forEach(b=>{const card=el('div',null,'book');card.append(el('strong',b.title),el('small',`${b.category||''} · ${b.status||''} · ${ratingStars(b.rating)}`,'muted'));if(b.description)card.append(el('p',b.description,'excerpt'));card.tabIndex=0;card.setAttribute('role','button');card.onclick=()=>detail(b.id);card.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();detail(b.id)}};$('books').append(card)})}
+function detail(id){const b=books.find(x=>x.id===id);if(!b)return;current=id;const root=$('detailContent');root.replaceChildren();root.append(el('h2',b.title));[['主角',b.author],['分类',b.category],['阅读状态',b.status],['星级',ratingStars(b.rating)],['进度',b.progress]].forEach(([k,v])=>{if(v)root.append(el('p',`${k}：${v}`))});root.append(el('h3','作品简介／剧情梗概'),el('p',b.description||'暂无简介','longtext'),el('h3','我的评价'),el('p',b.review||'暂无评价','longtext'));$('detailActions').classList.toggle('hidden',!isAdmin);show('detail')}
 async function load(){const {data,error:e}=await db.from('books').select('*').order('sort_title',{ascending:true});if(e){error('读取作品失败：'+e.message);return}books=data||[];render()}
 async function checkAdmin(){isAdmin=false;if(!session){adminUI();return}const {data,error:e}=await db.from('admins').select('user_id').eq('user_id',session.user.id).maybeSingle();if(e)error('检查管理员权限失败：'+e.message);isAdmin=!!data;adminUI()}
 function adminUI(){$('adminBtn').textContent=isAdmin?'退出登录':'管理员登录';$('addBtn').classList.toggle('hidden',!isAdmin);$('detailActions').classList.toggle('hidden',!isAdmin)}
-function edit(b){if(!isAdmin)return;editId=b?.id||null;$('editorTitle').textContent=b?'编辑作品':'添加新作品';$('bookForm').reset();['title','sort_title','author','category','description','status','rating','progress','review'].forEach(k=>{if(b&&b[k]!=null)$('bookForm').elements[k].value=b[k]});$('saveError').textContent='';show('editor')}
+function edit(b){if(!isAdmin)return;editId=b?.id||null;$('editorTitle').textContent=b?'编辑作品':'添加新作品';$('bookForm').reset();['title','sort_title','author','category','description','status','rating','progress','review'].forEach(k=>{if(b&&b[k]!=null)$('bookForm').elements[k].value=b[k]});setRating(b?.rating??null);$('saveError').textContent='';show('editor')}
 async function init(){if(!window.SUPABASE_URL?.startsWith('https://')||!window.SUPABASE_PUBLISHABLE_KEY?.startsWith('sb_publishable_')){error('请先在 config.js 中填写 Project URL 和 Publishable Key。');return}if(!window.supabase){error('Supabase JS 加载失败，请检查网络是否可以访问 jsDelivr。');return}db=window.supabase.createClient(window.SUPABASE_URL,window.SUPABASE_PUBLISHABLE_KEY);const {data}=await db.auth.getSession();session=data.session;await checkAdmin();await load();db.auth.onAuthStateChange((_event,s)=>{session=s;setTimeout(()=>checkAdmin(),0)})}
+
+function setRating(value){
+ const n=value==null||value===''?null:Number(value);
+ $('ratingValue').value=n==null?'':String(n);
+ $('ratingText').textContent=n==null?'未评分':n.toFixed(1)+' / 5';
+ Array.from($('starButtons').children).forEach((btn,i)=>{btn.classList.toggle('chosen',n!=null&&i<n);btn.setAttribute('aria-pressed',String(n!=null&&i+1===n))});
+ $('clearRating').setAttribute('aria-pressed',String(n==null));
+}
+for(let i=1;i<=5;i++){
+ const btn=el('button','★');btn.type='button';btn.title=i+'星';btn.setAttribute('aria-label',i+'星');
+ btn.onclick=()=>setRating(i);$('starButtons').append(btn);
+}
+$('clearRating').onclick=()=>setRating(null);
+setRating(null);
+
 const letters=['全部',...'ABCDEFGHIJKLMNOPQRSTUVWXYZ','#'];letters.forEach(l=>{const b=el('button',l);b.onclick=()=>{letter=l;Array.from($('letters').children).forEach(x=>x.classList.toggle('active',x===b));render()};if(l==='全部')b.classList.add('active');$('letters').append(b)});
 ['search','category','status'].forEach(id=>$(id).addEventListener('input',render));$('back').onclick=()=>show('home');$('cancelEdit').onclick=()=>show('home');
 $('addBtn').onclick=()=>edit(null);$('adminBtn').onclick=async()=>{if(isAdmin){if(confirm('确定退出管理员登录？')){await db.auth.signOut();isAdmin=false;adminUI();show('home')}}else show('login')};
