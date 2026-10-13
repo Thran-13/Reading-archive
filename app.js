@@ -1,9 +1,28 @@
 'use strict';
 const $=id=>document.getElementById(id), sections=['home','detail','login','editor'];
-let homeScrollY=0;
+let homeScrollY=0,homeAnchorId=null,homeAnchorTop=0;
 let db,books=[],session=null,isAdmin=false,current=null,editId=null,letter='全部',selectedTags=new Set(),selectedRating='all',tagCatalog=[],editingTags=new Set();
 function show(id){sections.forEach(s=>$(s).classList.toggle('hidden',s!==id));window.scrollTo(0,0)}
-function returnToHomePosition(){show('home');requestAnimationFrame(()=>window.scrollTo({top:homeScrollY,left:0,behavior:'instant'}))}
+function rememberHomePosition(id){
+ if($('home').classList.contains('hidden'))return;
+ homeScrollY=window.scrollY;
+ const card=id?[...$('books').children].find(n=>n.dataset.bookId===String(id)):null;
+ const anchor=card||[...$('books').children].find(n=>n.getBoundingClientRect().bottom>0);
+ homeAnchorId=anchor?.dataset.bookId||null;
+ homeAnchorTop=anchor?anchor.getBoundingClientRect().top:0;
+}
+function returnToHomePosition(){
+ // Do not use show('home'): it forcibly scrolls to the top.
+ sections.forEach(s=>$(s).classList.toggle('hidden',s!=='home'));
+ const restore=()=>{
+  let y=homeScrollY;
+  const anchor=homeAnchorId?[...$('books').children].find(n=>n.dataset.bookId===homeAnchorId):null;
+  if(anchor)y=window.scrollY+anchor.getBoundingClientRect().top-homeAnchorTop;
+  window.scrollTo(0,Math.max(0,y));
+ };
+ // Wait until the list is visible and laid out again after the async database refresh.
+ requestAnimationFrame(()=>requestAnimationFrame(restore));
+}
 function error(msg){$('globalError').textContent=msg||''}
 function el(tag,text,cls){const n=document.createElement(tag);if(text!=null)n.textContent=String(text);if(cls)n.className=cls;return n}
 function initial(b){const c=(b.sort_title||b.title||'').trim().charAt(0).toUpperCase();return /^[A-Z]$/.test(c)?c:'#'}
@@ -59,12 +78,12 @@ function ratingMatches(b){
  const n=Number(b.rating);
  return b.rating!=null&&b.rating!==''&&Number.isFinite(n)&&Math.floor(n)===Number(selectedRating);
 }
-function render(){const q=$('search').value.trim().toLowerCase(),cat=$('category').value,st=$('status').value;const data=books.filter(b=>(letter==='全部'||initial(b)===letter)&&(!cat||b.category===cat)&&(!st||b.status===st)&&ratingMatches(b)&&(!selectedTags.size||[...selectedTags].some(t=>tagsOf(b).includes(t)))&&(!q||[b.title,b.sort_title,b.author,b.description,b.review,...tagsOf(b)].some(v=>(v||'').toLowerCase().includes(q))));$('count').textContent=`共 ${data.length} 部作品`;$('books').replaceChildren();data.forEach(b=>{const card=el('div',null,'book');card.append(el('strong',b.title),el('small',`${b.category||''} · ${b.status||''} · ${ratingStars(b.rating).replace(/\s+\d+(?:\.\d+)?\/5$/, '')}`,'muted'));if(b.author)card.append(el('small',`主角：${b.author}`,'muted'));card.querySelectorAll('small').forEach(node=>{node.style.display='block';node.style.marginTop='8px'});card.tabIndex=0;card.setAttribute('role','button');card.onclick=()=>detail(b.id);card.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();detail(b.id)}};$('books').append(card)})}
-function detail(id){const b=books.find(x=>x.id===id);if(!b)return;homeScrollY=window.scrollY;current=id;const root=$('detailContent');root.replaceChildren();root.append(el('h2',b.title));[['主角',b.author],['分类',b.category],['阅读状态',b.status],['星级',ratingStars(b.rating)],['进度',b.progress]].forEach(([k,v])=>{if(v)root.append(el('p',`${k}：${v}`))});if(tagsOf(b).length){const tags=el('div',null,'taglist');tagsOf(b).forEach(t=>tags.append(tagNode(t)));root.append(tags)}root.append(el('h3','作品简介／剧情梗概'),el('p',b.description||'暂无简介','longtext'),el('h3','我的评价'),el('p',b.review||'暂无评价','longtext'));$('detailActions').classList.toggle('hidden',!isAdmin);show('detail')}
+function render(){const q=$('search').value.trim().toLowerCase(),cat=$('category').value,st=$('status').value;const data=books.filter(b=>(letter==='全部'||initial(b)===letter)&&(!cat||b.category===cat)&&(!st||b.status===st)&&ratingMatches(b)&&(!selectedTags.size||[...selectedTags].some(t=>tagsOf(b).includes(t)))&&(!q||[b.title,b.sort_title,b.author,b.description,b.review,...tagsOf(b)].some(v=>(v||'').toLowerCase().includes(q))));$('count').textContent=`共 ${data.length} 部作品`;$('books').replaceChildren();data.forEach(b=>{const card=el('div',null,'book');card.append(el('strong',b.title),el('small',`${b.category||''} · ${b.status||''} · ${ratingStars(b.rating).replace(/\s+\d+(?:\.\d+)?\/5$/, '')}`,'muted'));if(b.author)card.append(el('small',`主角：${b.author}`,'muted'));card.querySelectorAll('small').forEach(node=>{node.style.display='block';node.style.marginTop='8px'});card.dataset.bookId=String(b.id);card.tabIndex=0;card.setAttribute('role','button');card.onclick=()=>detail(b.id);card.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();detail(b.id)}};$('books').append(card)})}
+function detail(id){const b=books.find(x=>x.id===id);if(!b)return;rememberHomePosition(id);current=id;const root=$('detailContent');root.replaceChildren();root.append(el('h2',b.title));[['主角',b.author],['分类',b.category],['阅读状态',b.status],['星级',ratingStars(b.rating)],['进度',b.progress]].forEach(([k,v])=>{if(v)root.append(el('p',`${k}：${v}`))});if(tagsOf(b).length){const tags=el('div',null,'taglist');tagsOf(b).forEach(t=>tags.append(tagNode(t)));root.append(tags)}root.append(el('h3','作品简介／剧情梗概'),el('p',b.description||'暂无简介','longtext'),el('h3','我的评价'),el('p',b.review||'暂无评价','longtext'));$('detailActions').classList.toggle('hidden',!isAdmin);show('detail')}
 async function load(){const {data,error:e}=await db.from('books').select('*').order('sort_title',{ascending:true});if(e){error('读取作品失败：'+e.message);return}books=data||[];renderTagFilters();renderRatingFilters();render()}
 async function checkAdmin(){isAdmin=false;if(!session){adminUI();return}const {data,error:e}=await db.from('admins').select('user_id').eq('user_id',session.user.id).maybeSingle();if(e)error('检查管理员权限失败：'+e.message);isAdmin=!!data;adminUI()}
 function adminUI(){$('adminBtn').textContent=isAdmin?'退出登录':'管理员登录';$('addBtn').classList.toggle('hidden',!isAdmin);$('detailActions').classList.toggle('hidden',!isAdmin)}
-function edit(b){if(!isAdmin)return;if(!$('home').classList.contains('hidden'))homeScrollY=window.scrollY;editId=b?.id||null;$('editorTitle').textContent=b?'编辑作品':'添加新作品';$('bookForm').reset();['title','sort_title','author','category','description','status','rating','progress','review'].forEach(k=>{if(b&&b[k]!=null)$('bookForm').elements[k].value=b[k]});editingTags=new Set(tagsOf(b||{}));renderTagChoices();$('newTagName').value='';$('tagManageError').textContent='';setRating(b?.rating??null);$('saveError').textContent='';show('editor')}
+function edit(b){if(!isAdmin)return;if(!$('home').classList.contains('hidden'))rememberHomePosition(b?.id);editId=b?.id||null;$('editorTitle').textContent=b?'编辑作品':'添加新作品';$('bookForm').reset();['title','sort_title','author','category','description','status','rating','progress','review'].forEach(k=>{if(b&&b[k]!=null)$('bookForm').elements[k].value=b[k]});editingTags=new Set(tagsOf(b||{}));renderTagChoices();$('newTagName').value='';$('tagManageError').textContent='';setRating(b?.rating??null);$('saveError').textContent='';show('editor')}
 async function init(){if(!window.SUPABASE_URL?.startsWith('https://')||!window.SUPABASE_PUBLISHABLE_KEY?.startsWith('sb_publishable_')){error('请先在 config.js 中填写 Project URL 和 Publishable Key。');return}if(!window.supabase){error('Supabase JS 加载失败，请检查网络是否可以访问 jsDelivr。');return}db=window.supabase.createClient(window.SUPABASE_URL,window.SUPABASE_PUBLISHABLE_KEY);const {data}=await db.auth.getSession();session=data.session;await checkAdmin();await load();await loadTagCatalog();db.auth.onAuthStateChange((_event,s)=>{session=s;setTimeout(()=>checkAdmin(),0)})}
 
 function setRating(value){
